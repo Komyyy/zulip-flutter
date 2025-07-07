@@ -1081,14 +1081,6 @@
   "@newDmSheetSearchHintSomeSelected": {
     "description": "Hint text for the search bar when at least one user is selected"
   },
-  "mutedSender": "Wyciszony nadawca",
-  "@mutedSender": {
-    "description": "Name for a muted user to display in message list."
-  },
-  "revealButtonLabel": "Odsłoń wiadomość od wyciszonego użytkownika",
-  "@revealButtonLabel": {
-    "description": "Label for the button revealing hidden message from a muted sender in message list."
-  },
   "mutedUser": "Wyciszony użytkownik",
   "@mutedUser": {
     "description": "Name for a muted user to display all over the app."
@@ -1196,5 +1188,29 @@
   "upgradeWelcomeDialogDismiss": "Zaczynajmy",
   "@upgradeWelcomeDialogDismiss": {
     "description": "Label for button dismissing dialog shown on first upgrade from the legacy Zulip app."
+  },
+  "emptyMessageList": "Póki co brak wiadomości.",
+  "@emptyMessageList": {
+    "description": "Placeholder for some message-list pages when there are no messages."
+  },
+  "revealButtonLabel": "Odsłoń wiadomość",
+  "@revealButtonLabel": {
+    "description": "Label for the button revealing hidden message from a muted sender in message list."
+  },
+  "emptyMessageListSearch": "Brak wyników wyszukiwania.",
+  "@emptyMessageListSearch": {
+    "description": "Placeholder for the 'Search' page when there are no messages."
+  },
+  "searchMessagesPageTitle": "Szukaj",
+  "@searchMessagesPageTitle": {
+    "description": "Page title for the 'Search' message view."
+  },
+  "searchMessagesHintText": "Szukaj",
+  "@searchMessagesHintText": {
+    "description": "Hint text for the message search text field."
+  },
+  "searchMessagesClearButtonTooltip": "Wyczyść",
+  "@searchMessagesClearButtonTooltip": {
+    "description": "Tooltip for the 'x' button in the search text field."
   }
 }

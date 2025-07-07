@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_color_models/flutter_color_models.dart';
@@ -14,6 +16,7 @@ import '../model/typing_status.dart';
 import 'action_sheet.dart';
 import 'actions.dart';
 import 'app_bar.dart';
+import 'button.dart';
 import 'color.dart';
 import 'compose_box.dart';
 import 'content.dart';
@@ -148,6 +151,14 @@ abstract class MessageListPageState {
   /// "Mark as unread from here" in the message action sheet.
   bool? get markReadOnScroll;
   set markReadOnScroll(bool? value);
+
+  /// For a message from a muted sender, reveal the sender and content,
+  /// replacing the "Muted user" placeholder.
+  void revealMutedMessage(int messageId);
+
+  /// For a message from a muted sender, hide the sender and content again
+  /// with the "Muted user" placeholder.
+  void unrevealMutedMessage(int messageId);
 }
 
 class MessageListPage extends StatefulWidget {
@@ -162,6 +173,21 @@ class MessageListPage extends StatefulWidget {
     return MaterialAccountWidgetRoute(accountId: accountId, context: context,
       page: MessageListPage(
         initNarrow: narrow, initAnchorMessageId: initAnchorMessageId));
+  }
+
+  /// The "revealed" state of a message from a muted sender.
+  ///
+  /// This is updated via [MessageListPageState.revealMutedMessage]
+  /// and [MessageListPageState.unrevealMutedMessage].
+  ///
+  /// Uses the efficient [BuildContext.dependOnInheritedWidgetOfExactType],
+  /// so this is safe to call in a build method.
+  static RevealedMutedMessagesState revealedMutedMessagesOf(BuildContext context) {
+    final state =
+      context.dependOnInheritedWidgetOfExactType<_RevealedMutedMessagesProvider>()
+      ?.state;
+    assert(state != null, 'No MessageListPage ancestor');
+    return state!;
   }
 
   /// The [MessageListPageState] above this context in the tree.
@@ -231,6 +257,18 @@ class _MessageListPageState extends State<MessageListPage> implements MessageLis
     });
   }
 
+  final _revealedMutedMessages = RevealedMutedMessagesState();
+
+  @override
+  void revealMutedMessage(int messageId) {
+    _revealedMutedMessages._add(messageId);
+  }
+
+  @override
+  void unrevealMutedMessage(int messageId) {
+    _revealedMutedMessages._remove(messageId);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -245,55 +283,10 @@ class _MessageListPageState extends State<MessageListPage> implements MessageLis
 
   @override
   Widget build(BuildContext context) {
-    final store = PerAccountStoreWidget.of(context);
-    final messageListTheme = MessageListTheme.of(context);
-    final zulipLocalizations = ZulipLocalizations.of(context);
-
-    final Color? appBarBackgroundColor;
-    bool removeAppBarBottomBorder = false;
-    switch(narrow) {
-      case CombinedFeedNarrow():
-      case MentionsNarrow():
-      case StarredMessagesNarrow():
-        appBarBackgroundColor = null; // i.e., inherit
-
-      case ChannelNarrow(:final streamId):
-      case TopicNarrow(:final streamId):
-        final subscription = store.subscriptions[streamId];
-        appBarBackgroundColor =
-          colorSwatchFor(context, subscription).barBackground;
-        // All recipient headers will match this color; remove distracting line
-        // (but are recipient headers even needed for topic narrows?)
-        removeAppBarBottomBorder = true;
-
-      case DmNarrow():
-        appBarBackgroundColor = messageListTheme.dmRecipientHeaderBg;
-        // All recipient headers will match this color; remove distracting line
-        // (but are recipient headers even needed?)
-        removeAppBarBottomBorder = true;
-    }
-
-    List<Widget> actions = [];
-    switch (narrow) {
-      case CombinedFeedNarrow():
-      case MentionsNarrow():
-      case StarredMessagesNarrow():
-      case DmNarrow():
-        break;
-      case ChannelNarrow(:final streamId):
-        actions.add(_TopicListButton(streamId: streamId));
-      case TopicNarrow(:final streamId):
-        actions.add(IconButton(
-          icon: const Icon(ZulipIcons.message_feed),
-          tooltip: zulipLocalizations.channelFeedButtonTooltip,
-          onPressed: () => Navigator.push(context,
-            MessageListPage.buildRoute(context: context,
-              narrow: ChannelNarrow(streamId)))));
-        actions.add(_TopicListButton(streamId: streamId));
-    }
-
     final Anchor initAnchor;
-    if (widget.initAnchorMessageId != null) {
+    if (narrow is KeywordSearchNarrow) {
+      initAnchor = AnchorCode.newest;
+    } else if (widget.initAnchorMessageId != null) {
       initAnchor = NumericAnchor(widget.initAnchorMessageId!);
     } else {
       final globalSettings = GlobalStoreWidget.settingsOf(context);
@@ -301,18 +294,8 @@ class _MessageListPageState extends State<MessageListPage> implements MessageLis
       initAnchor = useFirstUnread ? AnchorCode.firstUnread : AnchorCode.newest;
     }
 
-    // Insert a PageRoot here, to provide a context that can be used for
-    // MessageListPage.ancestorOf.
-    return PageRoot(child: Scaffold(
-      appBar: ZulipAppBar(
-        buildTitle: (willCenterTitle) =>
-          MessageListAppBarTitle(narrow: narrow, willCenterTitle: willCenterTitle),
-        actions: actions,
-        backgroundColor: appBarBackgroundColor,
-        shape: removeAppBarBottomBorder
-          ? const Border()
-          : null, // i.e., inherit
-      ),
+    Widget result = Scaffold(
+      appBar: _MessageListAppBar.build(context, narrow: narrow),
       // TODO question for Vlad: for a stream view, should we set the Scaffold's
       //   [backgroundColor] based on stream color, as in this frame:
       //     https://www.figma.com/file/1JTNtYo9memgW7vV6d0ygq/Zulip-Mobile?node-id=132%3A9684&mode=dev
@@ -348,8 +331,124 @@ class _MessageListPageState extends State<MessageListPage> implements MessageLis
             if (ComposeBox.hasComposeBox(narrow))
               ComposeBox(key: _composeBoxKey, narrow: narrow)
           ]);
-        })));
+        }));
+
+    // Insert a PageRoot here (under MessageListPage),
+    // to provide a context that can be used for MessageListPage.ancestorOf.
+    result = PageRoot(child: result);
+
+    result = _RevealedMutedMessagesProvider(state: _revealedMutedMessages,
+      child: result);
+
+    return result;
   }
+}
+
+// Conceptually this should be a widget class.  But it needs to be a
+// PreferredSizeWidget, with the `preferredSize` that the underlying AppBar
+// will have... and there's currently no good way to get that value short of
+// constructing the whole AppBar widget with all its properties.
+// So this has to be built eagerly by its parent's build method,
+// making it a build function rather than a widget.  Discussion:
+//   https://github.com/zulip/zulip-flutter/pull/1662#discussion_r2183471883
+// Still we can organize it on a class, with the name the widget would have.
+// TODO(upstream): AppBar should expose a bit more API so that it's possible
+//   to customize by composition in a reasonable way.
+abstract class _MessageListAppBar {
+  static AppBar build(BuildContext context, {required Narrow narrow}) {
+    final store = PerAccountStoreWidget.of(context);
+    final messageListTheme = MessageListTheme.of(context);
+    final zulipLocalizations = ZulipLocalizations.of(context);
+
+    final Color? appBarBackgroundColor;
+    bool removeAppBarBottomBorder = false;
+    switch(narrow) {
+      case CombinedFeedNarrow():
+      case MentionsNarrow():
+      case StarredMessagesNarrow():
+      case KeywordSearchNarrow():
+        appBarBackgroundColor = null; // i.e., inherit
+
+      case ChannelNarrow(:final streamId):
+      case TopicNarrow(:final streamId):
+        final subscription = store.subscriptions[streamId];
+        appBarBackgroundColor =
+          colorSwatchFor(context, subscription).barBackground;
+        // All recipient headers will match this color; remove distracting line
+        // (but are recipient headers even needed for topic narrows?)
+        removeAppBarBottomBorder = true;
+
+      case DmNarrow():
+        appBarBackgroundColor = messageListTheme.dmRecipientHeaderBg;
+        // All recipient headers will match this color; remove distracting line
+        // (but are recipient headers even needed?)
+        removeAppBarBottomBorder = true;
+    }
+
+    List<Widget> actions = [];
+    switch (narrow) {
+      case CombinedFeedNarrow():
+      case MentionsNarrow():
+      case StarredMessagesNarrow():
+      case KeywordSearchNarrow():
+      case DmNarrow():
+        break;
+      case ChannelNarrow(:final streamId):
+        actions.add(_TopicListButton(streamId: streamId));
+      case TopicNarrow(:final streamId):
+        actions.add(IconButton(
+          icon: const Icon(ZulipIcons.message_feed),
+          tooltip: zulipLocalizations.channelFeedButtonTooltip,
+          onPressed: () => Navigator.push(context,
+            MessageListPage.buildRoute(context: context,
+              narrow: ChannelNarrow(streamId)))));
+        actions.add(_TopicListButton(streamId: streamId));
+    }
+
+    return ZulipAppBar(
+      centerTitle: switch (narrow) {
+        CombinedFeedNarrow() || ChannelNarrow()
+            || TopicNarrow() || DmNarrow()
+            || MentionsNarrow() || StarredMessagesNarrow()
+          => null,
+        KeywordSearchNarrow()
+          => false,
+      },
+      buildTitle: (willCenterTitle) =>
+        MessageListAppBarTitle(narrow: narrow, willCenterTitle: willCenterTitle),
+      actions: actions,
+      backgroundColor: appBarBackgroundColor,
+      shape: removeAppBarBottomBorder
+        ? const Border()
+        : null, // i.e., inherit
+    );
+  }
+}
+
+class RevealedMutedMessagesState extends ChangeNotifier {
+  final Set<int> _revealedMessages = {};
+
+  bool isMutedMessageRevealed(int messageId) =>
+    _revealedMessages.contains(messageId);
+
+  void _add(int messageId) {
+    _revealedMessages.add(messageId);
+    notifyListeners();
+  }
+
+  void _remove(int messageId) {
+    _revealedMessages.remove(messageId);
+    notifyListeners();
+  }
+}
+
+class _RevealedMutedMessagesProvider extends InheritedNotifier<RevealedMutedMessagesState> {
+  const _RevealedMutedMessagesProvider({
+    required RevealedMutedMessagesState state,
+    required super.child,
+  }) : super(notifier: state);
+
+  RevealedMutedMessagesState get state => notifier!;
 }
 
 class _TopicListButton extends StatelessWidget {
@@ -500,7 +599,7 @@ class MessageListAppBarTitle extends StatelessWidget {
                 // either still fetching messages (and the user can reopen the
                 // sheet after that finishes) or there aren't any messages to
                 // act on anyway.
-                assert(someMessage == null || narrow.containsMessage(someMessage));
+                assert(someMessage == null || narrow.containsMessage(someMessage)!);
                 showTopicActionSheet(context,
                   channelId: streamId,
                   topic: topic,
@@ -520,9 +619,101 @@ class MessageListAppBarTitle extends StatelessWidget {
           return Text(
             zulipLocalizations.dmsWithOthersPageTitle(names.join(', ')));
         }
+
+      case KeywordSearchNarrow():
+        assert(!willCenterTitle);
+        return _SearchBar(onSubmitted: (narrow) {
+          MessageListPage.ancestorOf(context).model!.renarrowAndFetch(narrow);
+        });
     }
   }
 }
+
+class _SearchBar extends StatefulWidget {
+  const _SearchBar({required this.onSubmitted});
+
+  final void Function(KeywordSearchNarrow) onSubmitted;
+
+  @override
+  State<_SearchBar> createState() => _SearchBarState();
+}
+
+class _SearchBarState extends State<_SearchBar> {
+  late TextEditingController _controller;
+
+  static KeywordSearchNarrow _valueToNarrow(String value) =>
+    KeywordSearchNarrow(value.trim());
+
+  @override
+  void initState() {
+    _controller = TextEditingController();
+    super.initState();
+  }
+
+  void _handleSubmitted(String value) {
+    widget.onSubmitted(_valueToNarrow(value));
+  }
+
+  void _clearInput() {
+    _controller.clear();
+    _handleSubmitted('');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final designVariables = DesignVariables.of(context);
+    final zulipLocalizations = ZulipLocalizations.of(context);
+
+    return TextField(
+      controller: _controller,
+      autocorrect: false,
+
+      // Servers as of 2025-07 seem to require straight quotes for the
+      // "exact match"- style query. (N.B. the doc says this param is iOS-only.)
+      smartQuotesType: SmartQuotesType.disabled,
+
+      autofocus: true,
+      onSubmitted: _handleSubmitted,
+      cursorColor: designVariables.textInput,
+      style: TextStyle(
+        color: designVariables.textInput,
+        fontSize: 19,
+        height: 28 / 19,
+      ),
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: zulipLocalizations.searchMessagesHintText,
+        hintStyle: TextStyle(color: designVariables.labelSearchPrompt),
+        prefixIcon: Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(8, 8, 0, 8),
+          child: Icon(size: 24, ZulipIcons.search)),
+        prefixIconColor: designVariables.labelSearchPrompt,
+        prefixIconConstraints: BoxConstraints(),
+        suffixIcon: IconButton(
+          tooltip: zulipLocalizations.searchMessagesClearButtonTooltip,
+          onPressed: _clearInput,
+          // This and `suffixIconConstraints` allow 42px square touch target.
+          visualDensity: VisualDensity.compact,
+          highlightColor: Colors.transparent,
+          style: ButtonStyle(
+            padding: WidgetStatePropertyAll(EdgeInsets.zero),
+            splashFactory: NoSplash.splashFactory,
+          ),
+          iconSize: 24,
+          icon: Icon(ZulipIcons.remove)),
+        suffixIconColor: designVariables.textMessageMuted,
+        suffixIconConstraints: BoxConstraints(minWidth: 42, minHeight: 42),
+        contentPadding: const EdgeInsetsDirectional.symmetric(vertical: 7),
+        filled: true,
+        fillColor: designVariables.bgSearchInput,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide.none),
+      ));
+  }
+}
+
 
 /// The approximate height of a short message in the message list.
 const _kShortMessageHeight = 80;
@@ -788,7 +979,20 @@ class _MessageListState extends State<MessageList> with PerAccountStoreAwareStat
 
   @override
   Widget build(BuildContext context) {
+    final zulipLocalizations = ZulipLocalizations.of(context);
+
     if (!model.fetched) return const Center(child: CircularProgressIndicator());
+
+    if (model.items.isEmpty && model.haveNewest && model.haveOldest) {
+      final String message;
+      if (widget.narrow is KeywordSearchNarrow) {
+        message = zulipLocalizations.emptyMessageListSearch;
+      } else {
+        message = zulipLocalizations.emptyMessageList;
+      }
+
+      return PageBodyEmptyContentPlaceholder(message: message);
+    }
 
     // Pad the left and right insets, for small devices in landscape.
     return SafeArea(
@@ -989,11 +1193,15 @@ class _MessageListState extends State<MessageList> with PerAccountStoreAwareStat
         final header = RecipientHeader(message: data.message, narrow: widget.narrow);
         return MessageItem(
           key: ValueKey(data.message.id),
+          narrow: widget.narrow,
           header: header,
           item: data);
       case MessageListOutboxMessageItem():
         final header = RecipientHeader(message: data.message, narrow: widget.narrow);
-        return MessageItem(header: header, item: data);
+        return MessageItem(
+          narrow: widget.narrow,
+          header: header,
+          item: data);
     }
   }
 }
@@ -1163,15 +1371,15 @@ class _MarkAsReadWidgetState extends State<MarkAsReadWidget> {
     final zulipLocalizations = ZulipLocalizations.of(context);
     final store = PerAccountStoreWidget.of(context);
     final unreadCount = store.unreads.countInNarrow(widget.narrow);
-    final areMessagesRead = unreadCount == 0;
+    final shouldHide = unreadCount == 0;
 
     final messageListTheme = MessageListTheme.of(context);
 
     return IgnorePointer(
-      ignoring: areMessagesRead,
+      ignoring: shouldHide,
       child: MarkAsReadAnimation(
         loading: _loading,
-        hidden: areMessagesRead,
+        hidden: shouldHide,
         child: SizedBox(width: double.infinity,
           // Design referenced from:
           //   https://www.figma.com/file/1JTNtYo9memgW7vV6d0ygq/Zulip-Mobile?type=design&node-id=132-9684&mode=design&t=jJwHzloKJ0TMOG4M-0
@@ -1315,10 +1523,12 @@ class DateSeparator extends StatelessWidget {
 class MessageItem extends StatelessWidget {
   const MessageItem({
     super.key,
+    required this.narrow,
     required this.item,
     required this.header,
   });
 
+  final Narrow narrow;
   final MessageListMessageBaseItem item;
   final Widget header;
 
@@ -1331,7 +1541,9 @@ class MessageItem extends StatelessWidget {
       color: designVariables.bgMessageRegular,
       child: Column(children: [
         switch (item) {
-          MessageListMessageItem() => MessageWithPossibleSender(item: item),
+          MessageListMessageItem() => MessageWithPossibleSender(
+            narrow: narrow,
+            item: item),
           MessageListOutboxMessageItem() => OutboxMessageWithPossibleSender(item: item),
         },
         // TODO refine this padding; discussion:
@@ -1399,6 +1611,7 @@ class StreamMessageRecipientHeader extends StatelessWidget {
       case CombinedFeedNarrow():
       case MentionsNarrow():
       case StarredMessagesNarrow():
+      case KeywordSearchNarrow():
         return true;
 
       case ChannelNarrow():
@@ -1681,6 +1894,14 @@ class _SenderRow extends StatelessWidget {
   final MessageBase message;
   final bool showTimestamp;
 
+  bool _showAsMuted(BuildContext context, PerAccountStore store) {
+    final message = this.message;
+    if (!store.isUserMuted(message.senderId)) return false;
+    if (message is! Message) return false; // i.e., if an outbox message
+    return !MessageListPage.revealedMutedMessagesOf(context)
+      .isMutedMessageRevealed(message.id);
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = PerAccountStoreWidget.of(context);
@@ -1690,16 +1911,18 @@ class _SenderRow extends StatelessWidget {
     final sender = store.getUser(message.senderId);
     final time = _kMessageTimestampFormat
       .format(DateTime.fromMillisecondsSinceEpoch(1000 * message.timestamp));
+
+    final showAsMuted = _showAsMuted(context, store);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: localizedTextBaseline(context),
         children: [
           Flexible(
             child: GestureDetector(
-              onTap: () => Navigator.push(context,
+              onTap: () => showAsMuted ? null : Navigator.push(context,
                 ProfilePage.buildRoute(context: context,
                   userId: message.senderId)),
               child: Row(
@@ -1708,16 +1931,20 @@ class _SenderRow extends StatelessWidget {
                     size: 32,
                     borderRadius: 3,
                     showPresence: false,
+                    replaceIfMuted: showAsMuted,
                     userId: message.senderId),
                   const SizedBox(width: 8),
                   Flexible(
                     child: Text(message is Message
-                        ? store.senderDisplayName(message as Message)
+                        ? store.senderDisplayName(message as Message,
+                            replaceIfMuted: showAsMuted)
                         : store.userDisplayName(message.senderId),
                       style: TextStyle(
                         fontSize: 18,
                         height: (22 / 18),
-                        color: designVariables.title,
+                        color: showAsMuted
+                          ? designVariables.title.withFadedAlpha(0.5)
+                          : designVariables.title,
                       ).merge(weightVariableTextStyle(context, wght: 600)),
                       overflow: TextOverflow.ellipsis)),
                   if (sender?.isBot ?? false) ...[
@@ -1748,8 +1975,13 @@ class _SenderRow extends StatelessWidget {
 //   - https://github.com/zulip/zulip-mobile/issues/5511
 //   - https://www.figma.com/file/1JTNtYo9memgW7vV6d0ygq/Zulip-Mobile?node-id=538%3A20849&mode=dev
 class MessageWithPossibleSender extends StatelessWidget {
-  const MessageWithPossibleSender({super.key, required this.item});
+  const MessageWithPossibleSender({
+    super.key,
+    required this.narrow,
+    required this.item,
+  });
 
+  final Narrow narrow;
   final MessageListMessageItem item;
 
   @override
@@ -1798,9 +2030,32 @@ class MessageWithPossibleSender extends StatelessWidget {
       }
     }
 
+    final tapOpensConversation = switch (narrow) {
+      CombinedFeedNarrow()
+        || ChannelNarrow()
+        || TopicNarrow()
+        || DmNarrow() => false,
+      MentionsNarrow()
+        || StarredMessagesNarrow()
+        || KeywordSearchNarrow() => true,
+    };
+
+    final showAsMuted = store.isUserMuted(message.senderId)
+      && !MessageListPage.revealedMutedMessagesOf(context)
+                         .isMutedMessageRevealed(message.id);
+
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onLongPress: () => showMessageActionSheet(context: context, message: message),
+      onTap: tapOpensConversation
+        ? () => unawaited(Navigator.push(context,
+            MessageListPage.buildRoute(context: context,
+              narrow: SendableNarrow.ofMessage(message, selfUserId: store.selfUserId),
+              // TODO(#1655) "this view does not mark messages as read on scroll"
+              initAnchorMessageId: message.id)))
+        : null,
+      onLongPress: showAsMuted
+        ? null // TODO write a test for this
+        : () => showMessageActionSheet(context: context, message: message),
       child: Padding(
         padding: const EdgeInsets.only(top: 4),
         child: Column(children: [
@@ -1811,28 +2066,40 @@ class MessageWithPossibleSender extends StatelessWidget {
             textBaseline: localizedTextBaseline(context),
             children: [
               const SizedBox(width: 16),
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  content,
-                  if ((message.reactions?.total ?? 0) > 0)
-                    ReactionChipsList(messageId: message.id, reactions: message.reactions!),
-                  if (editMessageErrorStatus != null)
-                    _EditMessageStatusRow(messageId: message.id, status: editMessageErrorStatus)
-                  else if (editStateText != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(editStateText,
-                        textAlign: TextAlign.end,
-                        style: TextStyle(
-                          color: designVariables.labelEdited,
-                          fontSize: 12,
-                          height: (12 / 12),
-                          letterSpacing: proportionalLetterSpacing(context,
-                            0.05, baseFontSize: 12))))
-                  else
-                    Padding(padding: const EdgeInsets.only(bottom: 4))
-                ])),
+              Expanded(child: showAsMuted
+                ? Align(
+                    alignment: AlignmentDirectional.topStart,
+                    child: ZulipWebUiKitButton(
+                      label: zulipLocalizations.revealButtonLabel,
+                      icon: ZulipIcons.eye,
+                      size: ZulipWebUiKitButtonSize.small,
+                      intent: ZulipWebUiKitButtonIntent.neutral,
+                      attention: ZulipWebUiKitButtonAttention.minimal,
+                      onPressed: () {
+                        MessageListPage.ancestorOf(context).revealMutedMessage(message.id);
+                      }))
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      content,
+                      if ((message.reactions?.total ?? 0) > 0)
+                        ReactionChipsList(messageId: message.id, reactions: message.reactions!),
+                      if (editMessageErrorStatus != null)
+                        _EditMessageStatusRow(messageId: message.id, status: editMessageErrorStatus)
+                      else if (editStateText != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(editStateText,
+                            textAlign: TextAlign.end,
+                            style: TextStyle(
+                              color: designVariables.labelEdited,
+                              fontSize: 12,
+                              height: (12 / 12),
+                              letterSpacing: proportionalLetterSpacing(context,
+                                0.05, baseFontSize: 12))))
+                      else
+                        Padding(padding: const EdgeInsets.only(bottom: 4))
+                    ])),
               SizedBox(width: 16,
                 child: star),
             ]),

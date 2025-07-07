@@ -530,6 +530,14 @@
       "others": {"type": "String", "example": "Alice, Bob"}
     }
   },
+  "emptyMessageList": "There are no messages here.",
+  "@emptyMessageList": {
+    "description": "Placeholder for some message-list pages when there are no messages."
+  },
+  "emptyMessageListSearch": "No search results.",
+  "@emptyMessageListSearch": {
+    "description": "Placeholder for the 'Search' page when there are no messages."
+  },
   "messageListGroupYouWithYourself": "Messages with yourself",
   "@messageListGroupYouWithYourself": {
     "description": "Message list recipient header for a DM group that only includes yourself."
@@ -789,6 +797,18 @@
   "@userRoleUnknown": {
     "description": "Label for UserRole.unknown"
   },
+  "searchMessagesPageTitle": "Search",
+  "@searchMessagesPageTitle": {
+    "description": "Page title for the 'Search' message view."
+  },
+  "searchMessagesHintText": "Search",
+  "@searchMessagesHintText": {
+    "description": "Hint text for the message search text field."
+  },
+  "searchMessagesClearButtonTooltip": "Clear",
+  "@searchMessagesClearButtonTooltip": {
+    "description": "Tooltip for the 'x' button in the search text field."
+  },
   "inboxPageTitle": "Inbox",
   "@inboxPageTitle": {
     "description": "Title for the page with unreads."
@@ -1047,17 +1067,13 @@
   "@noEarlierMessages": {
     "description": "Text to show at the start of a message list if there are no earlier messages."
   },
-  "mutedSender": "Muted sender",
-  "@mutedSender": {
-    "description": "Name for a muted user to display in message list."
-  },
-  "revealButtonLabel": "Reveal message for muted sender",
+  "revealButtonLabel": "Reveal message",
   "@revealButtonLabel": {
     "description": "Label for the button revealing hidden message from a muted sender in message list."
   },
   "mutedUser": "Muted user",
   "@mutedUser": {
-    "description": "Name for a muted user to display all over the app."
+    "description": "Text to display in place of a muted user's name."
   },
   "scrollToBottomTooltip": "Scroll to bottom",
   "@scrollToBottomTooltip": {

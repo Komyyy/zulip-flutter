@@ -446,6 +446,12 @@ class ZulipLocalizationsIt extends ZulipLocalizations {
   }
 
   @override
+  String get emptyMessageList => 'There are no messages here.';
+
+  @override
+  String get emptyMessageListSearch => 'No search results.';
+
+  @override
   String get messageListGroupYouWithYourself => 'Messaggi con te stesso';
 
   @override
@@ -663,6 +669,15 @@ class ZulipLocalizationsIt extends ZulipLocalizations {
   String get userRoleUnknown => 'Sconosciuto';
 
   @override
+  String get searchMessagesPageTitle => 'Search';
+
+  @override
+  String get searchMessagesHintText => 'Search';
+
+  @override
+  String get searchMessagesClearButtonTooltip => 'Clear';
+
+  @override
   String get inboxPageTitle => 'Inbox';
 
   @override
@@ -875,9 +890,6 @@ class ZulipLocalizationsIt extends ZulipLocalizations {
 
   @override
   String get noEarlierMessages => 'Nessun messaggio precedente';
-
-  @override
-  String get mutedSender => 'Mittente silenziato';
 
   @override
   String get revealButtonLabel => 'Mostra messaggio per mittente silenziato';

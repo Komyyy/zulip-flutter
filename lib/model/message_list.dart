@@ -105,6 +105,18 @@ enum FetchingStatus {
 ///
 /// This comprises much of the guts of [MessageListView].
 mixin _MessageSequence {
+  /// Whether each message should have its own recipient header,
+  /// even if it's in the same conversation as the previous message.
+  ///
+  /// In some message-list views, notably "Mentions" and "Starred",
+  /// it would be misleading to give the impression that consecutive messages
+  /// in the same conversation were sent one after the other
+  /// with no other messages in between.
+  /// By giving each message its own recipient header (a `true` value for this),
+  /// we intend to avoid giving that impression.
+  @visibleForTesting
+  bool get oneMessagePerBlock;
+
   /// A sequence number for invalidating stale fetches.
   int generation = 0;
 
@@ -435,7 +447,11 @@ mixin _MessageSequence {
     required MessageListMessageBaseItem Function(bool canShareSender) buildItem,
   }) {
     final bool canShareSender;
-    if (prevMessage == null || !haveSameRecipient(prevMessage, message)) {
+    if (
+      prevMessage == null
+      || oneMessagePerBlock
+      || !haveSameRecipient(prevMessage, message)
+    ) {
       items.add(MessageListRecipientHeaderItem(message));
       canShareSender = false;
     } else {
@@ -598,9 +614,18 @@ class MessageListView with ChangeNotifier, _MessageSequence {
 
   /// The narrow shown in this message list.
   ///
-  /// This can change over time, notably if showing a topic that gets moved.
+  /// This can change over time, notably if showing a topic that gets moved,
+  /// or if [renarrowAndFetch] is called.
   Narrow get narrow => _narrow;
   Narrow _narrow;
+
+  /// Set [narrow] to [newNarrow], reset, [notifyListeners], and [fetchInitial].
+  void renarrowAndFetch(Narrow newNarrow) {
+    _narrow = newNarrow;
+    _reset();
+    notifyListeners();
+    fetchInitial();
+  }
 
   /// The anchor point this message list starts from in the message history.
   ///
@@ -622,6 +647,16 @@ class MessageListView with ChangeNotifier, _MessageSequence {
     store.unregisterMessageList(this);
     super.dispose();
   }
+
+  @override bool get oneMessagePerBlock => switch (narrow) {
+    CombinedFeedNarrow()
+      || ChannelNarrow()
+      || TopicNarrow()
+      || DmNarrow() => false,
+    MentionsNarrow()
+      || StarredMessagesNarrow()
+      || KeywordSearchNarrow() => true,
+  };
 
   /// Whether [message] should actually appear in this message list,
   /// given that it does belong to the narrow.
@@ -649,6 +684,7 @@ class MessageListView with ChangeNotifier, _MessageSequence {
       case DmNarrow():
       case MentionsNarrow():
       case StarredMessagesNarrow():
+      case KeywordSearchNarrow():
         return true;
     }
   }
@@ -668,6 +704,7 @@ class MessageListView with ChangeNotifier, _MessageSequence {
       case DmNarrow():
       case MentionsNarrow():
       case StarredMessagesNarrow():
+      case KeywordSearchNarrow():
         return VisibilityEffect.none;
     }
   }
@@ -685,6 +722,7 @@ class MessageListView with ChangeNotifier, _MessageSequence {
       case DmNarrow():
       case MentionsNarrow():
       case StarredMessagesNarrow():
+      case KeywordSearchNarrow():
         return true;
     }
   }
@@ -700,6 +738,17 @@ class MessageListView with ChangeNotifier, _MessageSequence {
   Future<void> fetchInitial() async {
     assert(!fetched && !haveOldest && !haveNewest && !busyFetchingMore);
     assert(messages.isEmpty && contents.isEmpty);
+
+    if (narrow case KeywordSearchNarrow(keyword: '')) {
+      // The server would reject an empty keyword search; skip the request.
+      // TODO this seems like an awkward layer to handle this at --
+      //   probably better if the UI code doesn't take it to this point.
+      _haveOldest = true;
+      _haveNewest = true;
+      _setStatus(FetchingStatus.idle, was: FetchingStatus.unstarted);
+      return;
+    }
+
     _setStatus(FetchingStatus.fetchInitial, was: FetchingStatus.unstarted);
     // TODO schedule all this in another isolate
     final generation = this.generation;
@@ -914,7 +963,7 @@ class MessageListView with ChangeNotifier, _MessageSequence {
   bool _shouldAddOutboxMessage(OutboxMessage outboxMessage) {
     assert(haveNewest);
     return !outboxMessage.hidden
-      && narrow.containsMessage(outboxMessage)
+      && narrow.containsMessage(outboxMessage) == true
       && _messageVisible(outboxMessage);
   }
 
@@ -1001,7 +1050,7 @@ class MessageListView with ChangeNotifier, _MessageSequence {
   /// Add [MessageEvent.message] to this view, if it belongs here.
   void handleMessageEvent(MessageEvent event) {
     final message = event.message;
-    if (!narrow.containsMessage(message) || !_messageVisible(message)) {
+    if (narrow.containsMessage(message) != true || !_messageVisible(message)) {
       assert(event.localMessageId == null || outboxMessages.none((message) =>
         message.localMessageId == int.parse(event.localMessageId!, radix: 10)));
       return;
@@ -1076,9 +1125,7 @@ class MessageListView with ChangeNotifier, _MessageSequence {
     switch (propagateMode) {
       case PropagateMode.changeAll:
       case PropagateMode.changeLater:
-        _narrow = newNarrow;
-        _reset();
-        fetchInitial();
+        renarrowAndFetch(newNarrow);
       case PropagateMode.changeOne:
     }
   }
@@ -1099,10 +1146,17 @@ class MessageListView with ChangeNotifier, _MessageSequence {
       case CombinedFeedNarrow():
       case MentionsNarrow():
       case StarredMessagesNarrow():
-        // The messages were and remain in this narrow.
-        // TODO(#421): … except they may have become muted or not.
+        // The messages didn't enter or leave this narrow.
+        // TODO(#1255): … except they may have become muted or not.
         //   We'll handle that at the same time as we handle muting itself changing.
         // Recipient headers, and downstream of those, may change, though.
+        _messagesMovedInternally(messageIds);
+
+      case KeywordSearchNarrow():
+        // This might not be quite true, since matches can be determined by
+        // the topic alone, and topics change. Punt on trying to add/remove
+        // messages, though, because we aren't equipped to evaluate the match
+        // without asking the server.
         _messagesMovedInternally(messageIds);
 
       case ChannelNarrow(:final streamId):

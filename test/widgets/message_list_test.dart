@@ -65,6 +65,7 @@ void main() {
     GetMessagesResult? fetchResult,
     List<ZulipStream>? streams,
     List<User>? users,
+    List<int>? mutedUserIds,
     List<Subscription>? subscriptions,
     UnreadMessagesSnapshot? unreadMsgs,
     int? zulipFeatureLevel,
@@ -87,6 +88,9 @@ void main() {
     // prepare message list data
     await store.addUser(eg.selfUser);
     await store.addUsers(users ?? []);
+    if (mutedUserIds != null) {
+      await store.setMutedUsers(mutedUserIds);
+    }
     if (fetchResult != null) {
       assert(foundOldest && messageCount == null && messages == null);
     } else {
@@ -124,6 +128,9 @@ void main() {
   ScrollController? findMessageListScrollController(WidgetTester tester) {
     return findScrollView(tester).controller;
   }
+
+  final contentInputFinder = find.byWidgetPredicate(
+    (widget) => widget is TextField && widget.controller is ComposeContentController);
 
   group('MessageListPage', () {
     testWidgets('ancestorOf finds page state from message', (tester) async {
@@ -323,6 +330,61 @@ void main() {
         of: find.byType(TopicListPage),
         matching: find.text('channel foo')),
       ).findsOne();
+    });
+
+    testWidgets('shows "Muted user" label for muted users in DM narrow', (tester) async {
+      final user1 = eg.user(userId: 1, fullName: 'User 1');
+      final user2 = eg.user(userId: 2, fullName: 'User 2');
+      final user3 = eg.user(userId: 3, fullName: 'User 3');
+      final mutedUsers = [1, 3];
+
+      await setupMessageListPage(tester,
+        narrow: DmNarrow.withOtherUsers([1, 2, 3], selfUserId: 10),
+        users: [user1, user2, user3],
+        mutedUserIds: mutedUsers,
+        messageCount: 1,
+      );
+
+      check(find.text('DMs with Muted user, User 2, Muted user')).findsOne();
+    });
+  });
+
+  group('no-messages placeholder', () {
+    final findPlaceholder = find.byType(PageBodyEmptyContentPlaceholder);
+
+    Finder findTextInPlaceholder(String text) =>
+      find.descendant(of: findPlaceholder, matching: find.textContaining(text));
+
+    testWidgets('Combined feed', (tester) async {
+      await setupMessageListPage(tester, narrow: CombinedFeedNarrow(), messages: []);
+      check(findTextInPlaceholder('There are no messages here.')).findsOne();
+    });
+
+    testWidgets('Search, empty keyword', (tester) async {
+      await setupMessageListPage(tester, narrow: KeywordSearchNarrow(''), messages: []);
+      check(findTextInPlaceholder('No search results.')).findsOne();
+    });
+
+    testWidgets('Search, non-empty keyword', (tester) async {
+      await setupMessageListPage(tester, narrow: KeywordSearchNarrow('hello'), messages: []);
+      check(findTextInPlaceholder('No search results.')).findsOne();
+    });
+
+    testWidgets('when `messages` empty but `outboxMessages` not empty, show outboxes, not placeholder', (tester) async {
+      final channel = eg.stream();
+      await setupMessageListPage(tester,
+        narrow: TopicNarrow(channel.streamId, eg.t('topic')),
+        streams: [channel],
+        messages: []);
+      check(findPlaceholder).findsOne();
+
+      connection.prepare(json: SendMessageResult(id: 1).toJson());
+      await tester.enterText(contentInputFinder, 'asdfjkl;');
+      await tester.tap(find.byIcon(ZulipIcons.send));
+      await tester.pump(kLocalEchoDebounceDuration);
+
+      check(findPlaceholder).findsNothing();
+      check(find.text('asdfjkl;')).findsOne();
     });
   });
 
@@ -1342,6 +1404,33 @@ void main() {
         tester.widget(find.text('new stream name'));
       });
 
+      testWidgets('navigates to ChannelNarrow on tapping channel in CombinedFeedNarrow', (tester) async {
+        final pushedRoutes = <Route<void>>[];
+        final navObserver = TestNavigatorObserver()
+          ..onPushed = (route, prevRoute) => pushedRoutes.add(route);
+        final channel = eg.stream();
+        final subscription = eg.subscription(channel);
+        final message = eg.streamMessage(stream: channel, topic: 'topic name');
+        await setupMessageListPage(tester,
+          narrow: CombinedFeedNarrow(),
+          subscriptions: [subscription],
+          messages: [message],
+          navObservers: [navObserver]);
+
+        assert(pushedRoutes.length == 1);
+        pushedRoutes.clear();
+
+        connection.prepare(json: eg.newestGetMessagesResult(
+          foundOldest: true, messages: [message]).toJson());
+        await tester.tap(find.descendant(
+          of: find.byType(StreamMessageRecipientHeader),
+          matching: find.text(channel.name)));
+        await tester.pump();
+        check(pushedRoutes).single.isA<WidgetRoute>().page.isA<MessageListPage>()
+          .initNarrow.equals(ChannelNarrow(channel.streamId));
+        await tester.pumpAndSettle();
+      });
+
       testWidgets('navigates to TopicNarrow on tapping topic in ChannelNarrow', (tester) async {
         final pushedRoutes = <Route<void>>[];
         final navObserver = TestNavigatorObserver()
@@ -1421,6 +1510,21 @@ void main() {
           zulipLocalizations.unknownUserName)));
         tester.widget(find.text(zulipLocalizations.messageListGroupYouAndOthers(
           "${zulipLocalizations.unknownUserName}, ${eg.thirdUser.fullName}")));
+      });
+
+      testWidgets('show "Muted user" label for muted users', (tester) async {
+        final user1 = eg.user(userId: 1, fullName: 'User 1');
+        final user2 = eg.user(userId: 2, fullName: 'User 2');
+        final user3 = eg.user(userId: 3, fullName: 'User 3');
+        final mutedUsers = [1, 3];
+
+        await setupMessageListPage(tester,
+          users: [user1, user2, user3],
+          mutedUserIds: mutedUsers,
+          messages: [eg.dmMessage(from: eg.selfUser, to: [user1, user2, user3])]
+        );
+
+        check(find.text('You and Muted user, Muted user, User 2')).findsOne();
       });
 
       testWidgets('icon color matches text color', (tester) async {
@@ -1626,6 +1730,147 @@ void main() {
 
       debugNetworkImageHttpClientProvider = null;
     });
+
+    group('Muted sender', () {
+      void checkMessage(Message message, {required bool expectIsMuted}) {
+        final mutedLabel = 'Muted user';
+        final mutedLabelFinder = find.widgetWithText(MessageWithPossibleSender,
+          mutedLabel);
+
+        final avatarFinder = find.byWidgetPredicate(
+          (widget) => widget is Avatar && widget.userId == message.senderId);
+        final mutedAvatarFinder = find.descendant(
+          of: avatarFinder,
+          matching: find.byIcon(ZulipIcons.person));
+        final nonmutedAvatarFinder = find.descendant(
+          of: avatarFinder,
+          matching: find.byType(RealmContentNetworkImage));
+
+        final senderName = store.senderDisplayName(message, replaceIfMuted: false);
+        assert(senderName != mutedLabel);
+        final senderNameFinder = find.widgetWithText(MessageWithPossibleSender,
+          senderName);
+
+        final contentFinder = find.descendant(
+          of: find.byType(MessageContent),
+          matching: find.text('A message', findRichText: true));
+
+        check(mutedLabelFinder.evaluate().length).equals(expectIsMuted ? 1 : 0);
+        check(senderNameFinder.evaluate().length).equals(expectIsMuted ? 0 : 1);
+        check(mutedAvatarFinder.evaluate().length).equals(expectIsMuted ? 1 : 0);
+        check(nonmutedAvatarFinder.evaluate().length).equals(expectIsMuted ? 0 : 1);
+        check(contentFinder.evaluate().length).equals(expectIsMuted ? 0 : 1);
+      }
+
+      final user = eg.user(userId: 1, fullName: 'User', avatarUrl: '/foo.png');
+      final message = eg.streamMessage(sender: user,
+        content: '<p>A message</p>', reactions: [eg.unicodeEmojiReaction]);
+
+      testWidgets('muted appearance', (tester) async {
+        prepareBoringImageHttpClient();
+        await setupMessageListPage(tester,
+          users: [user], mutedUserIds: [user.userId], messages: [message]);
+        checkMessage(message, expectIsMuted: true);
+        debugNetworkImageHttpClientProvider = null;
+      });
+
+      testWidgets('not-muted appearance', (tester) async {
+        prepareBoringImageHttpClient();
+        await setupMessageListPage(tester,
+          users: [user], mutedUserIds: [], messages: [message]);
+        checkMessage(message, expectIsMuted: false);
+        debugNetworkImageHttpClientProvider = null;
+      });
+
+      testWidgets('"Reveal message" button', (tester) async {
+        prepareBoringImageHttpClient();
+
+        await setupMessageListPage(tester,
+          users: [user], mutedUserIds: [user.userId], messages: [message]);
+        checkMessage(message, expectIsMuted: true);
+        await tester.tap(find.text('Reveal message'));
+        await tester.pump();
+        checkMessage(message, expectIsMuted: false);
+
+        debugNetworkImageHttpClientProvider = null;
+      });
+    });
+
+    group('Opens conversation on tap?', () {
+      // (copied from test/widgets/content_test.dart)
+      Future<void> tapText(WidgetTester tester, Finder textFinder) async {
+        final height = tester.getSize(textFinder).height;
+        final target = tester.getTopLeft(textFinder)
+          .translate(height/4, height/2); // aim for middle of first letter
+        await tester.tapAt(target);
+      }
+
+      final subscription = eg.subscription(eg.stream(streamId: eg.defaultStreamMessageStreamId));
+      final topic = 'some topic';
+
+      void doTest(Narrow narrow, {
+        required bool expected,
+        required Message Function() mkMessage,
+      }) {
+        testWidgets('${expected ? 'yes' : 'no'}, if in $narrow', (tester) async {
+          final message = mkMessage();
+
+          Route<dynamic>? lastPushedRoute;
+          final navObserver = TestNavigatorObserver()
+            ..onPushed = ((route, prevRoute) => lastPushedRoute = route);
+
+          await setupMessageListPage(
+            tester,
+            narrow: narrow,
+            messages: [message],
+            subscriptions: [subscription],
+            navObservers: [navObserver]
+          );
+          lastPushedRoute = null;
+
+          // Tapping interactive content still works.
+          await store.handleEvent(eg.updateMessageEditEvent(message,
+            renderedContent: '<p><a href="https://example/">link</a></p>'));
+          await tester.pump();
+          await tapText(tester, find.text('link'));
+          await tester.pump(Duration.zero);
+          check(lastPushedRoute).isNull();
+          final launchUrlCalls = testBinding.takeLaunchUrlCalls();
+          check(launchUrlCalls.single.url).equals(Uri.parse('https://example/'));
+
+          // Tapping non-interactive content opens the conversation (if expected).
+          await store.handleEvent(eg.updateMessageEditEvent(message,
+            renderedContent: '<p>plain content</p>'));
+          await tester.pump();
+          await tapText(tester, find.text('plain content'));
+          if (expected) {
+            final expectedNarrow = SendableNarrow.ofMessage(message, selfUserId: store.selfUserId);
+
+            check(lastPushedRoute).isNotNull().isA<MaterialAccountWidgetRoute>()
+              .page.isA<MessageListPage>()
+                ..initNarrow.equals(expectedNarrow)
+                ..initAnchorMessageId.equals(message.id);
+          } else {
+            check(lastPushedRoute).isNull();
+          }
+
+          // TODO test tapping whitespace in message
+        });
+      }
+
+      doTest(expected: false, CombinedFeedNarrow(),
+        mkMessage: () => eg.streamMessage());
+      doTest(expected: false, ChannelNarrow(subscription.streamId),
+        mkMessage: () => eg.streamMessage(stream: subscription));
+      doTest(expected: false, TopicNarrow(subscription.streamId, eg.t(topic)),
+        mkMessage: () => eg.streamMessage(stream: subscription));
+      doTest(expected: false, DmNarrow.withUsers([], selfUserId: eg.selfUser.userId),
+        mkMessage: () => eg.streamMessage(stream: subscription, topic: topic));
+      doTest(expected: true, StarredMessagesNarrow(),
+        mkMessage: () => eg.streamMessage(flags: [MessageFlag.starred]));
+      doTest(expected: true, MentionsNarrow(),
+        mkMessage: () => eg.streamMessage(flags: [MessageFlag.mentioned]));
+    });
   });
 
   group('OutboxMessageWithPossibleSender', () {
@@ -1633,9 +1878,6 @@ void main() {
     final topic = 'topic';
     final topicNarrow = eg.topicNarrow(stream.streamId, topic);
     const content = 'outbox message content';
-
-    final contentInputFinder = find.byWidgetPredicate(
-      (widget) => widget is TextField && widget.controller is ComposeContentController);
 
     Finder outboxMessageFinder = find.widgetWithText(
       OutboxMessageWithPossibleSender, content, skipOffstage: true);

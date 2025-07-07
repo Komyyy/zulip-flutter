@@ -148,40 +148,6 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-/// A "no content here" message, for the Inbox, Subscriptions, and DMs pages.
-///
-/// This should go near the root of the "page body"'s widget subtree.
-/// In particular, it handles the horizontal device insets.
-/// (The vertical insets are handled externally, by the app bar and bottom nav.)
-class PageBodyEmptyContentPlaceholder extends StatelessWidget {
-  const PageBodyEmptyContentPlaceholder({super.key, required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final designVariables = DesignVariables.of(context);
-
-    return SafeArea(
-      minimum: EdgeInsets.symmetric(horizontal: 24),
-      child: Padding(
-        padding: EdgeInsets.only(top: 48, bottom: 16),
-        child: Align(
-          alignment: Alignment.topCenter,
-          // TODO leading and trailing elements, like in Figma (given as SVGs):
-          //   https://www.figma.com/design/1JTNtYo9memgW7vV6d0ygq/Zulip-Mobile?node-id=5957-167736&m=dev
-          child: Text(
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: designVariables.labelSearchPrompt,
-              fontSize: 17,
-              height: 23 / 17,
-            ).merge(weightVariableTextStyle(context, wght: 500)),
-            message))));
-  }
-}
-
-
 const kTryAnotherAccountWaitPeriod = Duration(seconds: 5);
 
 class _LoadingPlaceholderPage extends StatefulWidget {
@@ -301,7 +267,7 @@ void _showMainMenu(BuildContext context, {
   required ValueNotifier<_HomePageTab> tabNotifier,
 }) {
   final menuItems = <Widget>[
-    // TODO(#252): Search
+    const _SearchButton(),
     // const SizedBox(height: 8),
     _InboxButton(tabNotifier: tabNotifier),
     // TODO: Recent conversations
@@ -458,6 +424,24 @@ abstract class _NavigationBarMenuButton extends _MenuButton {
   @override
   void onPressed(BuildContext context) {
     tabNotifier.value = navigationTarget;
+  }
+}
+
+class _SearchButton extends _MenuButton {
+  const _SearchButton();
+
+  @override
+  IconData get icon => ZulipIcons.search;
+
+  @override
+  String label(ZulipLocalizations zulipLocalizations) {
+    return zulipLocalizations.searchMessagesPageTitle;
+  }
+
+  @override
+  void onPressed(BuildContext context) {
+    Navigator.of(context).push(MessageListPage.buildRoute(
+      context: context, narrow: KeywordSearchNarrow('')));
   }
 }
 

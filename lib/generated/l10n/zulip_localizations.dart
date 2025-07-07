@@ -845,6 +845,18 @@ abstract class ZulipLocalizations {
   /// **'DMs with {others}'**
   String dmsWithOthersPageTitle(String others);
 
+  /// Placeholder for some message-list pages when there are no messages.
+  ///
+  /// In en, this message translates to:
+  /// **'There are no messages here.'**
+  String get emptyMessageList;
+
+  /// Placeholder for the 'Search' page when there are no messages.
+  ///
+  /// In en, this message translates to:
+  /// **'No search results.'**
+  String get emptyMessageListSearch;
+
   /// Message list recipient header for a DM group that only includes yourself.
   ///
   /// In en, this message translates to:
@@ -1196,6 +1208,24 @@ abstract class ZulipLocalizations {
   /// In en, this message translates to:
   /// **'Unknown'**
   String get userRoleUnknown;
+
+  /// Page title for the 'Search' message view.
+  ///
+  /// In en, this message translates to:
+  /// **'Search'**
+  String get searchMessagesPageTitle;
+
+  /// Hint text for the message search text field.
+  ///
+  /// In en, this message translates to:
+  /// **'Search'**
+  String get searchMessagesHintText;
+
+  /// Tooltip for the 'x' button in the search text field.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get searchMessagesClearButtonTooltip;
 
   /// Title for the page with unreads.
   ///
@@ -1563,19 +1593,13 @@ abstract class ZulipLocalizations {
   /// **'No earlier messages'**
   String get noEarlierMessages;
 
-  /// Name for a muted user to display in message list.
-  ///
-  /// In en, this message translates to:
-  /// **'Muted sender'**
-  String get mutedSender;
-
   /// Label for the button revealing hidden message from a muted sender in message list.
   ///
   /// In en, this message translates to:
-  /// **'Reveal message for muted sender'**
+  /// **'Reveal message'**
   String get revealButtonLabel;
 
-  /// Name for a muted user to display all over the app.
+  /// Text to display in place of a muted user's name.
   ///
   /// In en, this message translates to:
   /// **'Muted user'**

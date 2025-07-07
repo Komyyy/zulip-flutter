@@ -444,6 +444,12 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   }
 
   @override
+  String get emptyMessageList => 'Здесь нет сообщений.';
+
+  @override
+  String get emptyMessageListSearch => 'Ничего не найдено.';
+
+  @override
   String get messageListGroupYouWithYourself => 'Сообщения с собой';
 
   @override
@@ -662,6 +668,15 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get userRoleUnknown => 'Неизвестно';
 
   @override
+  String get searchMessagesPageTitle => 'Поиск';
+
+  @override
+  String get searchMessagesHintText => 'Поиск';
+
+  @override
+  String get searchMessagesClearButtonTooltip => 'Очистить';
+
+  @override
   String get inboxPageTitle => 'Входящие';
 
   @override
@@ -872,10 +887,7 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get noEarlierMessages => 'Предшествующих сообщений нет';
 
   @override
-  String get mutedSender => 'Отключенный отправитель';
-
-  @override
-  String get revealButtonLabel => 'Показать сообщение отключенного отправителя';
+  String get revealButtonLabel => 'Показать сообщение';
 
   @override
   String get mutedUser => 'Отключенный пользователь';

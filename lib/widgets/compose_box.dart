@@ -859,9 +859,11 @@ class _FixedDestinationContentInput extends StatelessWidget {
 
       case DmNarrow(otherRecipientIds: [final otherUserId]):
         final store = PerAccountStoreWidget.of(context);
-        final fullName = store.getUser(otherUserId)?.fullName;
-        if (fullName == null) return zulipLocalizations.composeBoxGenericContentHint;
-        return zulipLocalizations.composeBoxDmContentHint(fullName);
+        final user = store.getUser(otherUserId);
+        if (user == null) return zulipLocalizations.composeBoxGenericContentHint;
+        // TODO write a test where the user is muted
+        return zulipLocalizations.composeBoxDmContentHint(
+          store.userDisplayName(otherUserId, replaceIfMuted: false));
 
       case DmNarrow(): // A group DM thread.
         return zulipLocalizations.composeBoxGroupDmContentHint;
@@ -1829,6 +1831,7 @@ class ComposeBox extends StatefulWidget {
       case CombinedFeedNarrow():
       case MentionsNarrow():
       case StarredMessagesNarrow():
+      case KeywordSearchNarrow():
         return false;
     }
   }
@@ -2047,6 +2050,7 @@ class _ComposeBoxState extends State<ComposeBox> with PerAccountStoreAwareStateM
       case CombinedFeedNarrow():
       case MentionsNarrow():
       case StarredMessagesNarrow():
+      case KeywordSearchNarrow():
         assert(false);
     }
   }
@@ -2081,6 +2085,7 @@ class _ComposeBoxState extends State<ComposeBox> with PerAccountStoreAwareStateM
       case CombinedFeedNarrow():
       case MentionsNarrow():
       case StarredMessagesNarrow():
+      case KeywordSearchNarrow():
         return null;
     }
     return null;

@@ -456,6 +456,12 @@ class ZulipLocalizationsSl extends ZulipLocalizations {
   }
 
   @override
+  String get emptyMessageList => 'There are no messages here.';
+
+  @override
+  String get emptyMessageListSearch => 'No search results.';
+
+  @override
   String get messageListGroupYouWithYourself => 'Sporočila sebi';
 
   @override
@@ -674,6 +680,15 @@ class ZulipLocalizationsSl extends ZulipLocalizations {
   String get userRoleUnknown => 'Neznano';
 
   @override
+  String get searchMessagesPageTitle => 'Search';
+
+  @override
+  String get searchMessagesHintText => 'Search';
+
+  @override
+  String get searchMessagesClearButtonTooltip => 'Clear';
+
+  @override
   String get inboxPageTitle => 'Nabiralnik';
 
   @override
@@ -882,9 +897,6 @@ class ZulipLocalizationsSl extends ZulipLocalizations {
 
   @override
   String get noEarlierMessages => 'Ni starejših sporočil';
-
-  @override
-  String get mutedSender => 'Utišan pošiljatelj';
 
   @override
   String get revealButtonLabel => 'Prikaži sporočilo utišanega pošiljatelja';

@@ -5,10 +5,10 @@ import '../model/narrow.dart';
 import '../model/recent_dm_conversations.dart';
 import '../model/unreads.dart';
 import 'content.dart';
-import 'home.dart';
 import 'icons.dart';
 import 'message_list.dart';
 import 'new_dm_sheet.dart';
+import 'page.dart';
 import 'store.dart';
 import 'text.dart';
 import 'theme.dart';
@@ -119,9 +119,9 @@ class RecentDmConversationsItem extends StatelessWidget {
         //   // 'Chris、Greg、Alya'
         title = narrow.otherRecipientIds.map(store.userDisplayName)
           .join(', ');
-        avatar = ColoredBox(color: designVariables.groupDmConversationIconBg,
+        avatar = ColoredBox(color: designVariables.avatarPlaceholderBg,
           child: Center(
-            child: Icon(color: designVariables.groupDmConversationIcon,
+            child: Icon(color: designVariables.avatarPlaceholderIcon,
               ZulipIcons.group_dm)));
     }
 
